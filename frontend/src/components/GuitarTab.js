@@ -3,24 +3,6 @@ import React from "react";
 const STANDARD_TUNING = [40, 45, 50, 55, 59, 64]; // E2 A2 D3 G3 B3 E4
 const STRING_NAMES = ["E", "A", "D", "G", "B", "e"];
 
-function midiToTab(midiPitch) {
-  let best = null;
-  let bestString = -1;
-  let bestFret = -1;
-
-  for (let s = 5; s >= 0; s--) {
-    const fret = midiPitch - STANDARD_TUNING[s];
-    if (fret >= 0 && fret <= 24) {
-      if (!best || fret < bestFret) {
-        best = fret;
-        bestString = s;
-        bestFret = fret;
-      }
-    }
-  }
-  return { string: bestString, fret: bestFret };
-}
-
 export default function GuitarTab({ notes = [], isBass = false }) {
   if (!notes.length) return null;
 

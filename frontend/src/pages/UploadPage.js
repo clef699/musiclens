@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useDropzone } from "react-dropzone";
-import { Upload, Music, AlertCircle, CheckCircle, Loader } from "lucide-react";
+import { Upload, AlertCircle, CheckCircle, Loader } from "lucide-react";
 import { uploadAPI } from "../utils/api";
 import toast from "react-hot-toast";
 
