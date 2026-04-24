@@ -18,9 +18,20 @@ app = FastAPI(
     version="1.0.0",
 )
 
+CORS_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:80",
+    "https://musiclens-rosy.vercel.app",
+]
+
+# Allow additional origins via env var (comma-separated)
+_extra = os.getenv("CORS_ORIGINS", "")
+if _extra:
+    CORS_ORIGINS.extend(o.strip() for o in _extra.split(",") if o.strip())
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:80", "*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
