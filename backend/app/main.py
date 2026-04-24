@@ -3,7 +3,6 @@ import logging
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from app.api.auth import router as auth_router
 from app.api.uploads import router as uploads_router
@@ -18,16 +17,20 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# Hardcoded allowed origins — always present regardless of env vars
 CORS_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:80",
     "https://musiclens-rosy.vercel.app",
 ]
 
-# Allow additional origins via env var (comma-separated)
-_extra = os.getenv("CORS_ORIGINS", "")
-if _extra:
-    CORS_ORIGINS.extend(o.strip() for o in _extra.split(",") if o.strip())
+# Extra origins from Railway env var CORS_ORIGINS (comma-separated)
+for _origin in os.getenv("CORS_ORIGINS", "").split(","):
+    _origin = _origin.strip()
+    if _origin and _origin not in CORS_ORIGINS:
+        CORS_ORIGINS.append(_origin)
+
+logger.info("CORS allowed origins: %s", CORS_ORIGINS)
 
 app.add_middleware(
     CORSMiddleware,
