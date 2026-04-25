@@ -7,7 +7,7 @@ from alembic import context
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.core.database import Base
-from app.models import User, Upload, Result  # noqa: import models to register them
+from app.models import Upload, Result  # noqa: import models to register them
 
 config = context.config
 if config.config_file_name is not None:
