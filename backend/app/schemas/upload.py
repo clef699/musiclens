@@ -56,17 +56,3 @@ class ResultOut(BaseModel):
         from_attributes = True
 
 
-class HistoryItem(BaseModel):
-    upload_id: int
-    filename: str
-    original_filename: str
-    instrument: str
-    status: str
-    uploaded_at: datetime
-    score: Optional[float]
-    key: Optional[str]
-    scale: Optional[str]
-    result_id: Optional[int]
-
-    class Config:
-        from_attributes = True

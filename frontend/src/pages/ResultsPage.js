@@ -40,7 +40,7 @@ export default function ResultsPage() {
   useEffect(() => {
     uploadAPI.getResult(resultId)
       .then((res) => setResult(res.data))
-      .catch(() => setError("Result not found or you don't have permission to view it."))
+      .catch(() => setError("Result not found."))
       .finally(() => setLoading(false));
   }, [resultId]);
 

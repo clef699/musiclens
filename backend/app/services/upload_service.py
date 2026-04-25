@@ -1,4 +1,3 @@
-import os
 import uuid
 import asyncio
 import logging
@@ -26,7 +25,6 @@ def validate_file(file: UploadFile, size_bytes: int) -> None:
             status_code=413,
             detail=f"File too large. Maximum size is {settings.MAX_FILE_SIZE_MB}MB"
         )
-
     ext = Path(file.filename or "").suffix.lower().lstrip(".")
     if ext not in settings.ALLOWED_EXTENSIONS:
         raise HTTPException(
@@ -35,8 +33,8 @@ def validate_file(file: UploadFile, size_bytes: int) -> None:
         )
 
 
-async def save_upload_file(file: UploadFile, user_id: int) -> tuple[str, str, int]:
-    upload_dir = Path(settings.UPLOAD_DIR) / str(user_id)
+async def save_upload_file(file: UploadFile) -> tuple[str, str, int]:
+    upload_dir = Path(settings.UPLOAD_DIR)
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     ext = Path(file.filename or "audio.wav").suffix.lower()
@@ -51,7 +49,6 @@ async def save_upload_file(file: UploadFile, user_id: int) -> tuple[str, str, in
 
 
 def run_analysis(upload_id: int, file_path: str, instrument: str, db: Session) -> None:
-    """Run audio analysis synchronously (called in a thread pool)."""
     import sys
     sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
     from analyzer import analyze_audio
@@ -82,21 +79,16 @@ def run_analysis(upload_id: int, file_path: str, instrument: str, db: Session) -
         db.add(result)
         upload.status = UploadStatus.complete
         db.commit()
-        logger.info(f"Analysis complete for upload {upload_id}")
+        logger.info("Analysis complete for upload %d", upload_id)
 
     except Exception as e:
-        logger.error(f"Analysis failed for upload {upload_id}: {e}")
+        logger.error("Analysis failed for upload %d: %s", upload_id, e)
         if upload:
             upload.status = UploadStatus.failed
             db.commit()
 
 
-async def process_upload(
-    file: UploadFile,
-    instrument: str,
-    user_id: int,
-    db: Session,
-) -> Upload:
+async def process_upload(file: UploadFile, instrument: str, db: Session) -> Upload:
     if instrument not in SUPPORTED_INSTRUMENTS:
         raise HTTPException(
             status_code=400,
@@ -105,13 +97,11 @@ async def process_upload(
 
     content = await file.read()
     await file.seek(0)
-
     validate_file(file, len(content))
 
-    file_path, unique_filename, size = await save_upload_file(file, user_id)
+    file_path, unique_filename, size = await save_upload_file(file)
 
     upload = Upload(
-        user_id=user_id,
         filename=unique_filename,
         original_filename=file.filename or "audio",
         instrument=instrument,

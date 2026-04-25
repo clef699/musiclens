@@ -7,9 +7,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 Base = declarative_base()
-
-# Engine is created lazily — a bad DATABASE_URL will not crash startup,
-# only fail when a DB operation is first attempted.
 _engine = None
 _SessionLocal = None
 
@@ -17,30 +14,24 @@ _SessionLocal = None
 def get_engine():
     global _engine
     if _engine is None:
-        try:
-            _engine = create_engine(
-                settings.DATABASE_URL,
-                pool_pre_ping=True,
-                pool_size=5,
-                max_overflow=10,
-            )
-            logger.info("Database engine created: %s", settings.DATABASE_URL.split("@")[-1])
-        except Exception as e:
-            logger.error("Failed to create database engine: %s", e)
-            raise
+        connect_args = {"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {}
+        _engine = create_engine(settings.DATABASE_URL, connect_args=connect_args)
+        logger.info("Database: %s", settings.DATABASE_URL)
     return _engine
+
+
+def init_db():
+    from app.models import upload, result  # noqa: F401
+    Base.metadata.create_all(bind=get_engine())
+    logger.info("Database tables created")
 
 
 def get_db():
     global _SessionLocal
+    if _SessionLocal is None:
+        _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=get_engine())
+    db = _SessionLocal()
     try:
-        if _SessionLocal is None:
-            _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=get_engine())
-        db = _SessionLocal()
-        try:
-            yield db
-        finally:
-            db.close()
-    except Exception as e:
-        logger.error("Database session error: %s", e)
-        raise
+        yield db
+    finally:
+        db.close()

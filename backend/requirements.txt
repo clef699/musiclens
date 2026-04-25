@@ -3,17 +3,8 @@ fastapi==0.111.0
 uvicorn[standard]==0.30.1
 python-multipart==0.0.9
 
-# Database
+# Database — SQLite is built-in; psycopg2 optional for Postgres
 sqlalchemy==2.0.30
-alembic==1.13.1
-psycopg2-binary==2.9.9
-asyncpg==0.29.0
-
-# Authentication
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-bcrypt==4.0.1
-python-decouple==3.8
 
 # Audio analysis
 basic-pitch==0.3.3
@@ -25,7 +16,6 @@ scipy==1.13.0
 
 # File handling
 aiofiles==23.2.1
-boto3==1.34.101
 
 # Testing
 pytest==8.2.0
