@@ -1,8 +1,9 @@
 import os
 import logging
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api.auth import router as auth_router
 from app.api.uploads import router as uploads_router
@@ -17,7 +18,7 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Allow all origins for now — tighten after confirming deployment works
+# Wildcard CORS — allow_credentials MUST be False when allow_origins=["*"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -25,6 +26,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Explicit OPTIONS handler so Railway proxy never returns 404/405 on preflight
+@app.options("/{rest_of_path:path}")
+async def preflight_handler(request: Request, rest_of_path: str):
+    return JSONResponse(
+        content={},
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Max-Age": "600",
+        },
+    )
+
 
 app.include_router(auth_router)
 app.include_router(uploads_router)
