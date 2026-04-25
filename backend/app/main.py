@@ -17,25 +17,11 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Hardcoded allowed origins — always present regardless of env vars
-CORS_ORIGINS = [
-    "http://localhost:3000",
-    "http://localhost:80",
-    "https://musiclens-rosy.vercel.app",
-]
-
-# Extra origins from Railway env var CORS_ORIGINS (comma-separated)
-for _origin in os.getenv("CORS_ORIGINS", "").split(","):
-    _origin = _origin.strip()
-    if _origin and _origin not in CORS_ORIGINS:
-        CORS_ORIGINS.append(_origin)
-
-logger.info("CORS allowed origins: %s", CORS_ORIGINS)
-
+# Allow all origins for now — tighten after confirming deployment works
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -43,7 +29,10 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(uploads_router)
 
-Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
+try:
+    Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
+except Exception as e:
+    logger.warning("Could not create upload dir %s: %s", settings.UPLOAD_DIR, e)
 
 
 @app.get("/health")
