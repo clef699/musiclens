@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, Music, Award, Key, Clock, Hash } from "lucide-react";
+import { ArrowLeft, Music, Award, Key, Clock, Hash, Loader } from "lucide-react";
 import { uploadAPI } from "../utils/api";
 import ScoreRing from "../components/ScoreRing";
 import NoteTimeline from "../components/NoteTimeline";
@@ -20,6 +20,15 @@ const TRANSPOSITION_NOTE = {
   trumpet: "Notes shown in written pitch (concert pitch + 2 semitones / Bb instrument)",
 };
 
+const PROGRESS_MESSAGES = [
+  "Transcribing audio with AI…",
+  "Analysing notes…",
+  "Detecting chords…",
+  "Detecting key and scale…",
+  "Calculating performance score…",
+  "Generating notation…",
+];
+
 function getInstrumentDisplay(instrument) {
   const i = (instrument || "").toLowerCase();
   return {
@@ -32,21 +41,62 @@ function getInstrumentDisplay(instrument) {
 }
 
 export default function ResultsPage() {
-  const { resultId } = useParams();
-  const [result, setResult] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const { resultId } = useParams(); // resultId is the job_id (upload.id)
+  const [jobData, setJobData] = useState(null);
   const [error, setError] = useState("");
+  const [msgIdx, setMsgIdx] = useState(0);
+  const pollRef = useRef(null);
+  const msgRef = useRef(null);
 
   useEffect(() => {
-    uploadAPI.getResult(resultId)
-      .then((res) => setResult(res.data))
-      .catch(() => setError("Result not found."))
-      .finally(() => setLoading(false));
+    let stopped = false;
+
+    const fetchStatus = () => {
+      uploadAPI.getJobStatus(resultId)
+        .then((res) => {
+          if (stopped) return;
+          setJobData(res.data);
+          if (res.data.status === "complete" || res.data.status === "failed") {
+            clearInterval(pollRef.current);
+            clearInterval(msgRef.current);
+          }
+        })
+        .catch(() => {
+          if (!stopped) setError("Job not found or server error.");
+          clearInterval(pollRef.current);
+          clearInterval(msgRef.current);
+        });
+    };
+
+    fetchStatus();
+    pollRef.current = setInterval(fetchStatus, 5000);
+    msgRef.current = setInterval(() => {
+      setMsgIdx((i) => (i + 1) % PROGRESS_MESSAGES.length);
+    }, 3000);
+
+    return () => {
+      stopped = true;
+      clearInterval(pollRef.current);
+      clearInterval(msgRef.current);
+    };
   }, [resultId]);
 
-  if (loading) return <LoadingState />;
   if (error) return <ErrorState message={error} />;
-  if (!result) return null;
+  if (!jobData) return <AnalysingState message="Connecting…" />;
+
+  if (jobData.status === "pending" || jobData.status === "processing") {
+    const msg = jobData.progress_message && jobData.progress_message !== "Queued"
+      ? jobData.progress_message
+      : PROGRESS_MESSAGES[msgIdx];
+    return <AnalysingState message={msg} />;
+  }
+
+  if (jobData.status === "failed") {
+    return <ErrorState message={jobData.progress_message || "Analysis failed. Please try a different file."} />;
+  }
+
+  const result = jobData.result;
+  if (!result) return <ErrorState message="Result not found." />;
 
   const instrument = result.upload?.instrument || "piano";
   const display = getInstrumentDisplay(instrument);
@@ -57,20 +107,20 @@ export default function ResultsPage() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
-      {/* Back link */}
-      <Link to="/history" className="flex items-center gap-1.5 text-gray-400 hover:text-white text-sm mb-6 w-fit">
-        <ArrowLeft size={16} /> Back to history
+      <Link to="/" className="flex items-center gap-1.5 text-gray-400 hover:text-white text-sm mb-6 w-fit">
+        <ArrowLeft size={16} /> Analyse another track
       </Link>
 
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-bold text-white">
             {result.upload?.original_filename || "Analysis Result"}
           </h1>
           <p className="text-gray-400 mt-1">
-            {INSTRUMENT_LABELS[instrument] || instrument} ·{" "}
-            {result.upload?.uploaded_at ? new Date(result.upload.uploaded_at).toLocaleString() : ""}
+            {INSTRUMENT_LABELS[instrument] || instrument}
+            {result.upload?.uploaded_at
+              ? ` · ${new Date(result.upload.uploaded_at).toLocaleString()}`
+              : ""}
           </p>
         </div>
         <div className="flex-shrink-0">
@@ -82,8 +132,8 @@ export default function ResultsPage() {
       {/* Key metrics */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
         <MetricCard icon={<Key size={18} />} label="Key & Scale" value={`${result.key || "?"} ${result.scale || ""}`} />
-        <MetricCard icon={<Hash size={18} />} label="Notes detected" value={result.note_count || notes.length} />
-        <MetricCard icon={<Clock size={18} />} label="Duration" value={`${result.duration?.toFixed(1) || "?"}s`} />
+        <MetricCard icon={<Hash size={18} />} label="Notes detected" value={result.note_count ?? notes.length} />
+        <MetricCard icon={<Clock size={18} />} label="Duration" value={result.duration ? `${result.duration.toFixed(1)}s` : "?"} />
         <MetricCard icon={<Music size={18} />} label="Unique chords" value={chords.length} />
       </div>
 
@@ -158,13 +208,13 @@ export default function ResultsPage() {
                   <tr key={i} className="border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors">
                     <td className="py-1.5 pr-4 text-gray-600">{i + 1}</td>
                     <td className="py-1.5 pr-4 text-white font-mono font-medium">{n.note_name}</td>
-                    <td className="py-1.5 pr-4 text-gray-400">{n.start_time.toFixed(3)}s</td>
-                    <td className="py-1.5 pr-4 text-gray-400">{n.duration.toFixed(3)}s</td>
+                    <td className="py-1.5 pr-4 text-gray-400">{n.start_time?.toFixed(3)}s</td>
+                    <td className="py-1.5 pr-4 text-gray-400">{n.duration?.toFixed(3)}s</td>
                     <td className="py-1.5">
                       <span className="inline-block w-16 bg-gray-800 rounded-full h-1.5 align-middle mr-2">
                         <span
                           className="block bg-primary-500 h-1.5 rounded-full"
-                          style={{ width: `${(n.velocity / 127) * 100}%` }}
+                          style={{ width: `${((n.velocity || 0) / 127) * 100}%` }}
                         />
                       </span>
                       <span className="text-gray-500">{n.velocity}</span>
@@ -196,11 +246,7 @@ function MetricCard({ icon, label, value }) {
 }
 
 function ScoreBar({ label, value, color }) {
-  const colors = {
-    blue: "bg-blue-500",
-    green: "bg-green-500",
-    orange: "bg-orange-500",
-  };
+  const colors = { blue: "bg-blue-500", green: "bg-green-500", orange: "bg-orange-500" };
   return (
     <div>
       <div className="flex justify-between mb-1.5">
@@ -217,10 +263,21 @@ function ScoreBar({ label, value, color }) {
   );
 }
 
-function LoadingState() {
+function AnalysingState({ message }) {
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
-      <div className="text-center py-20 text-gray-500">Loading analysis...</div>
+    <div className="max-w-2xl mx-auto px-4 py-24 text-center">
+      <div className="flex justify-center mb-6">
+        <div className="relative">
+          <div className="w-20 h-20 rounded-full border-4 border-gray-800" />
+          <div className="w-20 h-20 rounded-full border-4 border-primary-500 border-t-transparent animate-spin absolute inset-0" />
+          <Music className="w-8 h-8 text-primary-400 absolute inset-0 m-auto" />
+        </div>
+      </div>
+      <h2 className="text-2xl font-bold text-white mb-3">Analysing your track</h2>
+      <p className="text-primary-400 font-medium mb-2 h-6 transition-all duration-500">{message}</p>
+      <p className="text-gray-600 text-sm">
+        Long songs can take up to 2–3 minutes. This page updates automatically.
+      </p>
     </div>
   );
 }
@@ -230,7 +287,7 @@ function ErrorState({ message }) {
     <div className="max-w-6xl mx-auto px-4 py-8">
       <div className="card text-center py-12">
         <p className="text-red-400 mb-4">{message}</p>
-        <Link to="/history" className="btn-primary">Back to history</Link>
+        <Link to="/" className="btn-primary">Try another file</Link>
       </div>
     </div>
   );

@@ -15,8 +15,14 @@ const INSTRUMENTS = [
   { value: "trumpet", label: "Trumpet", desc: "Sheet music transposed to Bb" },
 ];
 
-const MAX_MB = 50;
-const ACCEPTED_TYPES = { "audio/mpeg": [".mp3"], "audio/wav": [".wav"], "audio/flac": [".flac"], "audio/ogg": [".ogg"], "audio/mp4": [".m4a"] };
+const MAX_MB = 200;
+const ACCEPTED_TYPES = {
+  "audio/mpeg": [".mp3"],
+  "audio/wav": [".wav"],
+  "audio/flac": [".flac"],
+  "audio/ogg": [".ogg"],
+  "audio/mp4": [".m4a"],
+};
 
 export default function UploadPage() {
   const navigate = useNavigate();
@@ -25,7 +31,6 @@ export default function UploadPage() {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
-  const [polling, setPolling] = useState(false);
 
   const onDrop = useCallback((accepted, rejected) => {
     setError("");
@@ -48,35 +53,12 @@ export default function UploadPage() {
     maxSize: MAX_MB * 1024 * 1024,
   });
 
-  const pollStatus = async (uploadId) => {
-    setPolling(true);
-    const maxAttempts = 60;
-    for (let i = 0; i < maxAttempts; i++) {
-      await new Promise((r) => setTimeout(r, 2000));
-      try {
-        const res = await uploadAPI.getStatus(uploadId);
-        const { status, result_id } = res.data;
-        if (status === "complete" && result_id) {
-          toast.success("Analysis complete!");
-          navigate(`/results/${result_id}`);
-          return;
-        }
-        if (status === "failed") {
-          setError("Analysis failed. Please try a different audio file.");
-          setPolling(false);
-          return;
-        }
-      } catch {}
-    }
-    setError("Analysis timed out after 2 minutes. Please try again.");
-    setPolling(false);
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!file) { setError("Please select an audio file."); return; }
     setError("");
     setUploading(true);
+    setProgress(0);
 
     try {
       const formData = new FormData();
@@ -89,9 +71,9 @@ export default function UploadPage() {
         }
       });
 
-      toast.success("File uploaded! Analysing...");
-      setUploading(false);
-      await pollStatus(res.data.id);
+      // Navigate immediately — ResultsPage handles the polling
+      toast.success("Uploaded! Analysing your track…");
+      navigate(`/results/${res.data.id}`);
     } catch (err) {
       const msg = err.response?.data?.detail || "Upload failed. Please try again.";
       setError(typeof msg === "string" ? msg : "Upload failed.");
@@ -102,15 +84,20 @@ export default function UploadPage() {
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
       <h1 className="text-3xl font-bold text-white mb-2">Analyse a track</h1>
-      <p className="text-gray-400 mb-8">Upload an audio file and select your instrument to get full musical analysis.</p>
+      <p className="text-gray-400 mb-8">
+        Upload an audio file and select your instrument. Works with songs up to 20 minutes long.
+      </p>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* File Drop Zone */}
+        {/* Drop zone */}
         <div
           {...getRootProps()}
           className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors ${
-            isDragActive ? "border-primary-500 bg-primary-900/20" :
-            file ? "border-green-600 bg-green-900/10" : "border-gray-700 hover:border-gray-600"
+            isDragActive
+              ? "border-primary-500 bg-primary-900/20"
+              : file
+              ? "border-green-600 bg-green-900/10"
+              : "border-gray-700 hover:border-gray-600"
           }`}
         >
           <input {...getInputProps()} />
@@ -119,8 +106,11 @@ export default function UploadPage() {
               <CheckCircle className="w-10 h-10 text-green-400" />
               <p className="text-white font-medium">{file.name}</p>
               <p className="text-gray-500 text-sm">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
-              <button type="button" className="text-gray-500 hover:text-white text-sm underline mt-1"
-                onClick={(e) => { e.stopPropagation(); setFile(null); }}>
+              <button
+                type="button"
+                className="text-gray-500 hover:text-white text-sm underline mt-1"
+                onClick={(e) => { e.stopPropagation(); setFile(null); }}
+              >
                 Remove
               </button>
             </div>
@@ -130,12 +120,12 @@ export default function UploadPage() {
               <p className="text-gray-300 font-medium">
                 {isDragActive ? "Drop your file here" : "Drag & drop or click to select"}
               </p>
-              <p className="text-gray-600 text-sm">MP3, WAV, FLAC, OGG, M4A · Max {MAX_MB}MB</p>
+              <p className="text-gray-600 text-sm">MP3, WAV, FLAC, OGG, M4A · Max {MAX_MB}MB · Up to 20 min</p>
             </div>
           )}
         </div>
 
-        {/* Instrument Selector */}
+        {/* Instrument selector */}
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-3">Select your instrument</label>
           <div className="grid sm:grid-cols-2 gap-2">
@@ -172,35 +162,27 @@ export default function UploadPage() {
           </div>
         )}
 
-        {/* Upload progress */}
-        {(uploading || polling) && (
+        {uploading && (
           <div className="card">
             <div className="flex items-center gap-3 mb-3">
               <Loader className="w-5 h-5 text-primary-400 animate-spin" />
-              <span className="text-white font-medium">
-                {uploading ? `Uploading... ${progress}%` : "Analysing your audio with AI..."}
-              </span>
+              <span className="text-white font-medium">Uploading… {progress}%</span>
             </div>
             <div className="w-full bg-gray-800 rounded-full h-2">
               <div
                 className="bg-primary-500 h-2 rounded-full transition-all duration-300"
-                style={{ width: uploading ? `${progress}%` : "100%" }}
+                style={{ width: `${progress}%` }}
               />
             </div>
-            {polling && (
-              <p className="text-gray-500 text-sm mt-2">
-                This can take 10–60 seconds depending on the file length.
-              </p>
-            )}
           </div>
         )}
 
         <button
           type="submit"
           className="btn-primary w-full py-3 text-base"
-          disabled={uploading || polling}
+          disabled={uploading}
         >
-          {uploading || polling ? "Processing..." : "Analyse track"}
+          {uploading ? "Uploading…" : "Analyse track"}
         </button>
       </form>
     </div>

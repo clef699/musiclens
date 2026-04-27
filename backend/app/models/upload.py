@@ -23,5 +23,6 @@ class Upload(Base):
     file_size_bytes = Column(Integer, nullable=True)
     uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
     status = Column(Enum(UploadStatus), default=UploadStatus.pending, nullable=False)
+    progress_message = Column(String, nullable=True, default="Queued")
 
     result = relationship("Result", back_populates="upload", uselist=False, cascade="all, delete-orphan")

@@ -1,5 +1,4 @@
 import uuid
-import asyncio
 import logging
 from pathlib import Path
 from sqlalchemy.orm import Session
@@ -16,6 +15,8 @@ SUPPORTED_INSTRUMENTS = [
     "piano", "keyboard", "lead_guitar", "bass_guitar",
     "alto_saxophone", "tenor_saxophone", "trumpet"
 ]
+
+ANALYZER_PATH = str(Path(__file__).resolve().parent.parent.parent.parent)
 
 
 def validate_file(file: UploadFile, size_bytes: int) -> None:
@@ -48,44 +49,98 @@ async def save_upload_file(file: UploadFile) -> tuple[str, str, int]:
     return str(file_path), unique_filename, len(content)
 
 
-def run_analysis(upload_id: int, file_path: str, instrument: str, db: Session) -> None:
+def run_analysis_bg(upload_id: int, file_path: str, instrument: str) -> None:
+    """Background task: owns its own DB session so the request session can close."""
+    from app.core.database import get_engine
+    from sqlalchemy.orm import sessionmaker
+
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=get_engine())
+    db = SessionLocal()
+    try:
+        _run_analysis(upload_id, file_path, instrument, db)
+    finally:
+        db.close()
+
+
+def _run_analysis(upload_id: int, file_path: str, instrument: str, db: Session) -> None:
     import sys
-    sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
-    from analyzer import analyze_audio
+    sys.path.insert(0, ANALYZER_PATH)
+    from analyzer import (
+        run_basic_pitch,
+        detect_key_and_scale,
+        detect_chords,
+        calculate_performance_score,
+        transpose_notes_for_instrument,
+        midi_to_note_name,
+    )
 
     upload = db.query(Upload).filter(Upload.id == upload_id).first()
     if not upload:
         return
 
-    try:
-        upload.status = UploadStatus.processing
+    def set_progress(msg: str) -> None:
+        upload.progress_message = msg
         db.commit()
 
-        result_data = analyze_audio(file_path, instrument)
+    try:
+        upload.status = UploadStatus.processing
+        set_progress("Transcribing audio with AI…")
+
+        # Step 1 — AI transcription (slowest step, especially for long files)
+        midi_notes = run_basic_pitch(file_path)
+
+        set_progress("Analysing notes…")
+        duration = max((n["end_time"] for n in midi_notes), default=0.0)
+
+        # Add note names to every note
+        for note in midi_notes:
+            note["note_name"] = midi_to_note_name(note["pitch"])
+
+        set_progress("Detecting chords…")
+        chords_timeline = detect_chords(midi_notes)
+        unique_chords = list(dict.fromkeys(c["chord"] for c in chords_timeline))
+
+        set_progress("Detecting key and scale…")
+        key, scale = detect_key_and_scale(midi_notes)
+
+        set_progress("Calculating performance score…")
+        score_data = calculate_performance_score(midi_notes, duration)
+
+        set_progress("Generating notation…")
+        display_notes = transpose_notes_for_instrument(midi_notes, instrument)
+        # Make sure display notes also carry note names
+        for note in display_notes:
+            note["note_name"] = midi_to_note_name(note["pitch"])
+
+        set_progress("Saving results…")
 
         result = Result(
             upload_id=upload_id,
-            score=result_data["score"]["total"],
-            key=result_data["key"],
-            scale=result_data["scale"],
-            chords=result_data["chords"],
-            notes=result_data["notes"],
-            raw_midi=result_data["raw_midi"],
-            chords_timeline=result_data["chords_timeline"],
-            score_breakdown=result_data["score"],
-            duration=result_data["duration"],
-            note_count=result_data["note_count"],
+            score=score_data["total"],
+            key=key,
+            scale=scale,
+            chords=unique_chords,
+            notes=display_notes,
+            raw_midi={"concert_pitch_notes": midi_notes, "total_notes": len(midi_notes)},
+            chords_timeline=chords_timeline,
+            score_breakdown=score_data,
+            duration=round(duration, 3),
+            note_count=len(midi_notes),
         )
         db.add(result)
         upload.status = UploadStatus.complete
+        upload.progress_message = "Complete"
         db.commit()
-        logger.info("Analysis complete for upload %d", upload_id)
+        logger.info("Analysis complete for upload %d (%d notes, %.1fs)", upload_id, len(midi_notes), duration)
 
     except Exception as e:
-        logger.error("Analysis failed for upload %d: %s", upload_id, e)
-        if upload:
+        logger.error("Analysis failed for upload %d: %s", upload_id, e, exc_info=True)
+        try:
             upload.status = UploadStatus.failed
+            upload.progress_message = "Analysis failed — please try a different file."
             db.commit()
+        except Exception:
+            pass
 
 
 async def process_upload(file: UploadFile, instrument: str, db: Session) -> Upload:
@@ -108,12 +163,9 @@ async def process_upload(file: UploadFile, instrument: str, db: Session) -> Uplo
         file_path=file_path,
         file_size_bytes=size,
         status=UploadStatus.pending,
+        progress_message="Queued",
     )
     db.add(upload)
     db.commit()
     db.refresh(upload)
-
-    loop = asyncio.get_event_loop()
-    loop.run_in_executor(None, run_analysis, upload.id, file_path, instrument, db)
-
     return upload

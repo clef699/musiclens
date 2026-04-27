@@ -15,28 +15,6 @@ class UploadOut(BaseModel):
         from_attributes = True
 
 
-class NoteItem(BaseModel):
-    pitch: int
-    note_name: str
-    start_time: float
-    end_time: float
-    duration: float
-    velocity: int
-
-
-class ChordItem(BaseModel):
-    start_time: float
-    end_time: float
-    chord: str
-
-
-class ScoreBreakdown(BaseModel):
-    total: float
-    pitch_accuracy: float
-    rhythm: float
-    note_density: float
-
-
 class ResultOut(BaseModel):
     id: int
     upload_id: int
@@ -56,3 +34,11 @@ class ResultOut(BaseModel):
         from_attributes = True
 
 
+class JobStatusOut(BaseModel):
+    job_id: int
+    status: str
+    progress_message: Optional[str]
+    result: Optional[ResultOut]
+
+    class Config:
+        from_attributes = True
